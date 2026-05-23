@@ -70,9 +70,9 @@ log = logging.getLogger(__name__)
 # 1 · Global constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-YOLO_WEIGHTS       = Path("best.pt")
-CLASSIFIER_WEIGHTS = Path("classifier.pt")
-SEG_WEIGHTS        = Path("seg_model.pt")
+YOLO_WEIGHTS       = Path("yolo26s-seg.pt")
+CLASSIFIER_WEIGHTS = Path("best_classifier.pt")
+SEG_WEIGHTS        = Path("yolov8n-seg.pt")
 
 CLASSES      = ["crack", "crack_segregation", "normal", "segregation"]
 IDX_TO_CLASS = {i: c for i, c in enumerate(CLASSES)}
