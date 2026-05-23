@@ -756,12 +756,12 @@ SI_ia = LDC / (2 × GAI × (1 − GAI)) × 100
 *PFE — Concrete Anomaly Detection Pipeline v2/v3*
 """
 
-with gr.Blocks(title="Concrete Anomaly Detection", theme=gr.themes.Soft) as demo:
+with gr.Blocks(title="Concrete Anomaly Detection") as demo:
     gr.Markdown(_DESCRIPTION)
 
     with gr.Row():
         with gr.Column(scale=1):
-            inp_image = gr.Image(type="pil", label="Input image", min_height=320)
+            inp_image = gr.Image(type="pil", label="Input image")
             inp_name  = gr.Textbox(
                 value="image",
                 label="Image / filename label",
@@ -771,7 +771,7 @@ with gr.Blocks(title="Concrete Anomaly Detection", theme=gr.themes.Soft) as demo
             run_btn = gr.Button("🔍  Analyse", variant="primary")
 
         with gr.Column(scale=2):
-            out_card   = gr.Image(type="pil", label="Inspection card", min_height=320)
+            out_card   = gr.Image(type="pil", label="Inspection card")
             out_report = gr.Markdown()
 
     run_btn.click(
@@ -784,4 +784,4 @@ with gr.Blocks(title="Concrete Anomaly Detection", theme=gr.themes.Soft) as demo
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(theme=gr.themes.Soft())
