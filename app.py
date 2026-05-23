@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 YOLO_WEIGHTS       = Path("yolo26s-seg.pt")
-CLASSIFIER_WEIGHTS = Path("best_classifier.pt")
+CLASSIFIER_WEIGHTS = Path("best_classifier.pth")
 SEG_WEIGHTS        = Path("yolov8n-seg.pt")
 
 CLASSES      = ["crack", "crack_segregation", "normal", "segregation"]
