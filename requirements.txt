@@ -1,32 +1,10 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Concrete Anomaly Detection — Hugging Face Spaces
-# CPU-only, headless Linux container (Ubuntu 22.04)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── Deep Learning ─────────────────────────────────────────────────────────────
-torch==2.3.1
-torchvision==0.18.1
-# CPU-only wheels are selected automatically by HF Spaces when no GPU is available.
-# If you upgrade to a GPU Space, remove the +cpu index URL override.
-
-# ── Object Detection (YOLO for concrete-region localisation) ──────────────────
-ultralytics==8.2.48
-
-# ── Vision & Image Processing ─────────────────────────────────────────────────
-# Use headless variant — no display/GUI dependencies needed in a container
-opencv-python-headless==4.10.0.84
+torch==2.6.0
+torchvision==0.21.0
+ultralytics==8.4.53
+opencv-python-headless==4.11.0.86
 Pillow==10.4.0
 numpy==1.26.4
-
-# ── Gradio UI ─────────────────────────────────────────────────────────────────
-gradio==4.42.0
-
-# ── Scientific / Plotting ─────────────────────────────────────────────────────
 matplotlib==3.9.2
-scipy==1.14.1
-
-# ── Utilities ─────────────────────────────────────────────────────────────────
-# Required by ultralytics internally
-PyYAML==6.0.2
-requests==2.32.3
-tqdm==4.66.5
+PyYAML>=6.0
+requests>=2.32
+tqdm>=4.66
