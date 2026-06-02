@@ -1126,6 +1126,8 @@ Upload a concrete surface photo and the full 5-stage inspection pipeline runs au
 
 if __name__ == "__main__":
     demo.launch(
+        server_name="0.0.0.0", 
+        server_port=7860,
         show_error=True,
         theme=gr.themes.Soft(
             primary_hue="blue",
