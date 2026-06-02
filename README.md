@@ -1,36 +1,60 @@
+
+---
+
+title: Concrete Anomaly Segregation Detection
+
+emoji: 🏗️
+
+colorFrom: blue
+
+colorTo: gray
+
+sdk: streamlit
+
+sdk\_version: 1.52.2
+
+app\_file: app.py
+
+pinned: false
+
+license: mit
+
+---
+
 # 🏗️ Concrete Anomaly Inspector
 
 A Gradio web app that runs a full 5-stage concrete defect detection pipeline on a single uploaded image.
 
 **Pipeline stages:**
+
 1. **Roboflow** → detect concrete area → crop ROI (fallback: full image)
-2. **ResNet-18** → classify: `crack | crack_segregation | segregation | normal`
+2. **ResNet-18** → classify: `crack | crack\_segregation | segregation | normal`
 3. **U-Net** → pixel-level binary anomaly mask *(segregation classes only)*
-4. **Feature extraction** → GAI (Global Anomaly Index) + SI_ia (Segregation Index)
+4. **Feature extraction** → GAI (Global Anomaly Index) + SI\_ia (Segregation Index)
 5. **Stage assignment** → KMeans (primary) + rule-based (reference)
 6. **Inspection card** → 4-panel or 2-panel summary figure
 
----
+\---
 
 ## 📁 Project structure
 
 ```
-concrete_inspector/
+concrete\_inspector/
 ├── app.py               ← Gradio application (main entry point)
 ├── requirements.txt     ← Python dependencies
 ├── .env.example         ← Template for environment variables
 ├── .env                 ← Your secrets (NOT committed, see .gitignore)
 ├── .gitignore
 ├── README.md
-└── saved_models/        ← Put your model files here
-    ├── best_unet.pth
-    ├── best_classifier.pth
-    ├── kmeans_stages.pkl
-    ├── kmeans_scaler.pkl
-    └── kmeans_rank_map.json
+└── saved\_models/        ← Put your model files here
+    ├── best\_unet.pth
+    ├── best\_classifier.pth
+    ├── kmeans\_stages.pkl
+    ├── kmeans\_scaler.pkl
+    └── kmeans\_rank\_map.json
 ```
 
----
+\---
 
 ## 🖥️ Run locally
 
@@ -38,7 +62,7 @@ concrete_inspector/
 
 ```bash
 git clone <your-repo-url>
-cd concrete_inspector
+cd concrete\_inspector
 ```
 
 ### 2 — Create and activate a virtual environment
@@ -46,7 +70,7 @@ cd concrete_inspector
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # macOS / Linux
-.venv\Scripts\activate         # Windows
+.venv\\Scripts\\activate         # Windows
 ```
 
 ### 3 — Install dependencies
@@ -63,15 +87,15 @@ pip install inference supervision
 
 ### 4 — Add your model files
 
-Copy your trained weights into the `saved_models/` folder:
+Copy your trained weights into the `saved\_models/` folder:
 
 ```
-saved_models/
-├── best_unet.pth
-├── best_classifier.pth
-├── kmeans_stages.pkl
-├── kmeans_scaler.pkl
-└── kmeans_rank_map.json
+saved\_models/
+├── best\_unet.pth
+├── best\_classifier.pth
+├── kmeans\_stages.pkl
+├── kmeans\_scaler.pkl
+└── kmeans\_rank\_map.json
 ```
 
 ### 5 — Configure environment variables
@@ -82,14 +106,14 @@ cp .env.example .env
 
 Open `.env` and set:
 
-| Variable | Description | Default |
-|---|---|---|
-| `MODELS_DIR` | Path to the folder with your model files | `./saved_models/` |
-| `ROBOFLOW_API_KEY` | Your Roboflow API key (leave blank to skip) | *(blank)* |
-| `ROBOFLOW_MODEL_ID` | Roboflow model identifier | `concrete_detection/6` |
-| `SEG_THRESHOLD` | U-Net binarisation threshold | `0.90` |
-| `CONF_THRESHOLD` | Roboflow detection confidence threshold | `0.90` |
-| `SHOW_MASK` | Overlay anomaly mask on image | `true` |
+|Variable|Description|Default|
+|-|-|-|
+|`MODELS\_DIR`|Path to the folder with your model files|`./saved\_models/`|
+|`ROBOFLOW\_API\_KEY`|Your Roboflow API key (leave blank to skip)|*(blank)*|
+|`ROBOFLOW\_MODEL\_ID`|Roboflow model identifier|`concrete\_detection/6`|
+|`SEG\_THRESHOLD`|U-Net binarisation threshold|`0.90`|
+|`CONF\_THRESHOLD`|Roboflow detection confidence threshold|`0.90`|
+|`SHOW\_MASK`|Overlay anomaly mask on image|`true`|
 
 ### 6 — Launch the app
 
@@ -99,7 +123,7 @@ python app.py
 
 Open your browser at **http://127.0.0.1:7860**.
 
----
+\---
 
 ## 🚀 Deploy to Hugging Face Spaces
 
@@ -120,19 +144,19 @@ git lfs install
 git clone https://huggingface.co/spaces/<your-username>/<your-space-name>
 cd <your-space-name>
 
-# Copy project files (everything EXCEPT .env and saved_models/)
-cp /path/to/concrete_inspector/app.py .
-cp /path/to/concrete_inspector/requirements.txt .
-cp /path/to/concrete_inspector/README.md .
+# Copy project files (everything EXCEPT .env and saved\_models/)
+cp /path/to/concrete\_inspector/app.py .
+cp /path/to/concrete\_inspector/requirements.txt .
+cp /path/to/concrete\_inspector/README.md .
 
 # Track model files with Git LFS before adding
-git lfs track "*.pth" "*.pkl"
+git lfs track "\*.pth" "\*.pkl"
 git add .gitattributes
 
 # Copy and add model files
-mkdir -p saved_models
-cp /path/to/saved_models/* saved_models/
-git add saved_models/
+mkdir -p saved\_models
+cp /path/to/saved\_models/\* saved\_models/
+git add saved\_models/
 
 # Add everything else
 git add app.py requirements.txt README.md
@@ -140,7 +164,7 @@ git commit -m "Initial deployment"
 git push
 ```
 
-> **Tip:** Alternatively, upload model files directly through the Hugging Face Space **Files** tab in your browser — no LFS setup needed for files under 5 GB.
+> \*\*Tip:\*\* Alternatively, upload model files directly through the Hugging Face Space \*\*Files\*\* tab in your browser — no LFS setup needed for files under 5 GB.
 
 ### Step 3 — Set secret environment variables
 
@@ -149,19 +173,19 @@ On Hugging Face, **do not** use a `.env` file. Instead:
 1. Open your Space → **Settings** → **Variables and secrets**.
 2. Click **New secret** and add each sensitive variable:
 
-| Secret name | Value |
-|---|---|
-| `ROBOFLOW_API_KEY` | Your Roboflow API key |
+|Secret name|Value|
+|-|-|
+|`ROBOFLOW\_API\_KEY`|Your Roboflow API key|
 
 3. Click **New variable** (non-secret) for the rest:
 
-| Variable name | Value |
-|---|---|
-| `MODELS_DIR` | `./saved_models/` |
-| `ROBOFLOW_MODEL_ID` | `concrete_detection/6` |
-| `SEG_THRESHOLD` | `0.90` |
-| `CONF_THRESHOLD` | `0.90` |
-| `SHOW_MASK` | `true` |
+|Variable name|Value|
+|-|-|
+|`MODELS\_DIR`|`./saved\_models/`|
+|`ROBOFLOW\_MODEL\_ID`|`concrete\_detection/6`|
+|`SEG\_THRESHOLD`|`0.90`|
+|`CONF\_THRESHOLD`|`0.90`|
+|`SHOW\_MASK`|`true`|
 
 The app reads all of these via `os.getenv()`, so it works on both local (`.env` file) and HF Spaces (Space secrets/variables) without any code change.
 
@@ -173,18 +197,19 @@ Hugging Face automatically installs `requirements.txt` and starts the app. Watch
 https://huggingface.co/spaces/<your-username>/<your-space-name>
 ```
 
----
+\---
 
 ## 🧩 Adding Roboflow
 
-If you skip `ROBOFLOW_API_KEY`, the pipeline uses the full uploaded image as the ROI — the app still works correctly. To enable Roboflow:
+If you skip `ROBOFLOW\_API\_KEY`, the pipeline uses the full uploaded image as the ROI — the app still works correctly. To enable Roboflow:
 
 1. Uncomment the Roboflow lines in `requirements.txt`.
-2. Set `ROBOFLOW_API_KEY` in your `.env` / Space secrets.
-3. Make sure `ROBOFLOW_MODEL_ID` matches your published model version.
+2. Set `ROBOFLOW\_API\_KEY` in your `.env` / Space secrets.
+3. Make sure `ROBOFLOW\_MODEL\_ID` matches your published model version.
 
----
+\---
 
 ## 📄 License
 
 MIT
+
