@@ -1,9 +1,0 @@
-
-# concrete_seg.yaml — YOLOv8 Dataset Configuration
-path: ./dataset/yolo_format    # Root path of the dataset
-train: images/train            # Training images
-val:   images/val              # Validation images
-test:  images/test             # Test images
-
-nc: 4                          # Number of classes
-names: ['crack', 'crack_segregation', 'segregation', 'normal']

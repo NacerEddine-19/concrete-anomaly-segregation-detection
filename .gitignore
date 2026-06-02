@@ -1,0 +1,26 @@
+# Secrets — NEVER commit
+.env
+
+# Model weights (large binary files — use Git LFS or HF Hub)
+saved_models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Output images
+*_plot*.png
+*_inspection.png

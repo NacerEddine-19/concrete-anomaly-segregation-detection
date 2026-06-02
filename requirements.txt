@@ -1,27 +1,55 @@
-# ── Core ──────────────────────────────────────────────────────────────────────
-streamlit>=1.35.0
+# ──────────────────────────────────────────────────────────────────────────────
+# requirements.txt — Concrete Anomaly Inspector (HF Spaces deployment)
+# Generated from local env (concrete_pfe) + app.py imports
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ── Deep learning ─────────────────────────────────────────────────────────────
-torch>=2.0.0
-torchvision>=0.15.0
+# ── Core ML / DL ──────────────────────────────────────────────────────────────
+torch==2.11.0
+torchvision==0.26.0
 
-# ── Vision / image processing ─────────────────────────────────────────────────
-opencv-python-headless>=4.8.0
-Pillow>=10.0.0
-numpy>=1.24.0
+# ── Computer Vision ───────────────────────────────────────────────────────────
+opencv-python-headless==4.13.0.92   # headless variant required on HF Spaces (no display)
+pillow==11.3.0
 
-# ── Data analysis ─────────────────────────────────────────────────────────────
-pandas>=2.0.0
-scikit-learn>=1.3.0
+# ── Numerical / Scientific ────────────────────────────────────────────────────
+numpy==2.2.6
+scipy==1.15.3
+scikit-learn==1.7.2
 
-# ── Visualisation ─────────────────────────────────────────────────────────────
-matplotlib>=3.7.0
-seaborn>=0.12.0
+# ── Persistence / Serialisation ───────────────────────────────────────────────
+joblib==1.5.3                        # load kmeans_stages.pkl / kmeans_scaler.pkl
 
-# ── Roboflow inference (concrete segmentation) ────────────────────────────────
-inference>=0.9.0          # roboflow hosted inference SDK
-supervision>=0.20.0       # sv.Detections helper
+# ── Plotting ──────────────────────────────────────────────────────────────────
+matplotlib==3.10.8
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
-python-dotenv>=1.0.0
-tqdm>=4.65.0
+# ── Web UI ────────────────────────────────────────────────────────────────────
+gradio                               # let HF resolve the latest compatible version
+
+# ── Config / Environment ──────────────────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ── Roboflow / Inference (optional — graceful fallback if absent) ─────────────
+inference==1.2.3
+inference-sdk==1.2.6
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Notes
+# ──────────────────────────────────────────────────────────────────────────────
+# • opencv-python-headless replaces opencv-python and opencv-contrib-python;
+#   both conflict on HF Spaces (no X server). Your app uses only core cv2 ops
+#   (resize, addWeighted, findContours, ellipse, boundingRect) — all present.
+#
+# • gradio is intentionally left unpinned: HF Spaces pre-installs a version and
+#   pinning can cause solver conflicts. If you need a specific version add e.g.
+#   gradio==5.x.x after testing.
+#
+# • torch 2.11.0 ships its own CUDA/CPU dispatch; no separate torchvision CUDA
+#   index needed for CPU-only Spaces (free tier). For GPU Spaces add:
+#     --extra-index-url https://download.pytorch.org/whl/cu121
+#   before torch/torchvision lines.
+#
+# • segmentation_models_pytorch (smp) is NOT imported in app.py — the U-Net is
+#   defined inline — so it is intentionally excluded.
+#
+# • inference pulls supervision, requests, pydantic automatically; no need to
+#   list them separately.

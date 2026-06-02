@@ -1,150 +1,190 @@
----
-title: Concrete Inspector
-emoji: 🏗️
-colorFrom: gray
-colorTo: green
-sdk: streamlit
-sdk_version: "1.35.0"
-python_version: "3.10"
-app_file: app.py
-pinned: false
----
+# 🏗️ Concrete Anomaly Inspector
 
-# 🏗️ Concrete Inspector
+A Gradio web app that runs a full 5-stage concrete defect detection pipeline on a single uploaded image.
 
-AI-powered concrete surface anomaly detection and characterisation.
+**Pipeline stages:**
+1. **Roboflow** → detect concrete area → crop ROI (fallback: full image)
+2. **ResNet-18** → classify: `crack | crack_segregation | segregation | normal`
+3. **U-Net** → pixel-level binary anomaly mask *(segregation classes only)*
+4. **Feature extraction** → GAI (Global Anomaly Index) + SI_ia (Segregation Index)
+5. **Stage assignment** → KMeans (primary) + rule-based (reference)
+6. **Inspection card** → 4-panel or 2-panel summary figure
 
 ---
 
-## Pipeline
-
-```
-Image upload
-    │
-    ▼
-Roboflow (concrete-seg)  ──► Crop each detected concrete region
-    │
-    ▼ (per crop)
-ResNet-18 Classifier ──► crack | crack_segregation | segregation | normal
-    │
-    ├── [segregation / crack_segregation] ──────────────────────────────┐
-    │        │                                                           │
-    │        ▼                                                           │
-    │   U-Net (best_unet.pth)                                           │
-    │        │                                                           │
-    │        ▼                                                           │
-    │   Binary anomaly mask                                             │
-    │        │                                                           │
-    │        ▼                                                           │
-    │   GAI + SI_ia extraction                                          │
-    │        │                                                           │
-    │        ▼                                                           │
-    │   Defect cluster assignment [0 / 1 / 2]                          │
-    │        │                                                           │
-    │        ▼                                                           │
-    │   Static material cluster means lookup ◄──────────────────────────┘
-    │        │
-    │        ▼
-    │   Full 4-panel inspection card
-    │   [Image | Identity | Defect signals | Material means]
-    │
-    └── [normal / crack] ──► Simple 2-panel card
-                              [Image | Class probabilities]
-```
-
----
-
-## Project Structure
+## 📁 Project structure
 
 ```
 concrete_inspector/
-├── app.py                    # Streamlit entry-point
-├── constants.py              # CLASSES, MATERIAL_CLUSTER_MEANS, thresholds
-├── requirements.txt
-├── saved_models/
-│   ├── best_unet.pth         # ← place your U-Net weights here
-│   └── best_classifier.pth   # ← place your ResNet-18 weights here
-└── core/
-    ├── __init__.py
-    ├── architectures.py      # UNet, DoubleConv, SimpleCNNSeg, build_classifier
-    ├── pipeline.py           # preprocess, classify, segment, extract_features, SI_ia
-    ├── roboflow_seg.py       # Roboflow concrete detection wrapper
-    └── visualization.py      # render_full_card, render_simple_card
+├── app.py               ← Gradio application (main entry point)
+├── requirements.txt     ← Python dependencies
+├── .env.example         ← Template for environment variables
+├── .env                 ← Your secrets (NOT committed, see .gitignore)
+├── .gitignore
+├── README.md
+└── saved_models/        ← Put your model files here
+    ├── best_unet.pth
+    ├── best_classifier.pth
+    ├── kmeans_stages.pkl
+    ├── kmeans_scaler.pkl
+    └── kmeans_rank_map.json
 ```
 
 ---
 
-## Setup
+## 🖥️ Run locally
 
-### 1 · Install dependencies
+### 1 — Clone / download the project
+
+```bash
+git clone <your-repo-url>
+cd concrete_inspector
+```
+
+### 2 — Create and activate a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate      # macOS / Linux
+.venv\Scripts\activate         # Windows
+```
+
+### 3 — Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2 · Place model weights
+If you want Roboflow ROI detection, also install:
+
+```bash
+pip install inference supervision
+```
+
+### 4 — Add your model files
+
+Copy your trained weights into the `saved_models/` folder:
+
 ```
 saved_models/
-  best_unet.pth          ← U-Net segmentation (binary anomaly mask)
-  best_classifier.pth    ← ResNet-18 4-class classifier
+├── best_unet.pth
+├── best_classifier.pth
+├── kmeans_stages.pkl
+├── kmeans_scaler.pkl
+└── kmeans_rank_map.json
 ```
 
-### 3 · Configure Roboflow
-Either via the Streamlit sidebar, or via environment variables:
+### 5 — Configure environment variables
+
 ```bash
-export ROBOFLOW_API_KEY="your_key_here"
-export ROBOFLOW_MODEL_ID="concrete-detection-lvb3q/1"
+cp .env.example .env
 ```
 
-### 4 · Run
+Open `.env` and set:
+
+| Variable | Description | Default |
+|---|---|---|
+| `MODELS_DIR` | Path to the folder with your model files | `./saved_models/` |
+| `ROBOFLOW_API_KEY` | Your Roboflow API key (leave blank to skip) | *(blank)* |
+| `ROBOFLOW_MODEL_ID` | Roboflow model identifier | `concrete_detection/6` |
+| `SEG_THRESHOLD` | U-Net binarisation threshold | `0.90` |
+| `CONF_THRESHOLD` | Roboflow detection confidence threshold | `0.90` |
+| `SHOW_MASK` | Overlay anomaly mask on image | `true` |
+
+### 6 — Launch the app
+
 ```bash
-streamlit run app.py
+python app.py
 ```
 
----
-
-## Architectures (aligned with `Concrete_Anomaly_Detection_v2.ipynb`)
-
-| Model | File | Architecture | Role |
-|---|---|---|---|
-| U-Net | `best_unet.pth` | `UNet(in=3, out=1, features=[64,128,256,512])` | Pixel-level binary segmentation |
-| Classifier | `best_classifier.pth` | ResNet-18 + `Dropout(0.4)→Linear(256)→ReLU→Dropout(0.3)→Linear(4)` | 4-class crop classification |
+Open your browser at **http://127.0.0.1:7860**.
 
 ---
 
-## Segregation Index (SI_ia)
+## 🚀 Deploy to Hugging Face Spaces
 
-Implemented in `core/pipeline.py → extract_features()`:
+### Step 1 — Create a new Space
 
+1. Go to [huggingface.co/new-space](https://huggingface.co/new-space).
+2. Choose **Gradio** as the SDK.
+3. Select a hardware tier (CPU Basic is free; use GPU for faster inference).
+4. Click **Create Space**.
+
+### Step 2 — Push your code
+
+```bash
+# Install git-lfs (needed for large model files)
+git lfs install
+
+# Clone your new Space repo
+git clone https://huggingface.co/spaces/<your-username>/<your-space-name>
+cd <your-space-name>
+
+# Copy project files (everything EXCEPT .env and saved_models/)
+cp /path/to/concrete_inspector/app.py .
+cp /path/to/concrete_inspector/requirements.txt .
+cp /path/to/concrete_inspector/README.md .
+
+# Track model files with Git LFS before adding
+git lfs track "*.pth" "*.pkl"
+git add .gitattributes
+
+# Copy and add model files
+mkdir -p saved_models
+cp /path/to/saved_models/* saved_models/
+git add saved_models/
+
+# Add everything else
+git add app.py requirements.txt README.md
+git commit -m "Initial deployment"
+git push
 ```
-1. GAI = anomaly_pixels / total_pixels
-2. Divide mask into 10×10 grid
-3. For each cell: LAI = anomaly_pixels_in_cell / cell_total
-4. LAD = |LAI − GAI|
-5. LDC = mean(LADs)
-6. SI_ia = LDC / (2 × GAI × (1 − GAI)) × 100
-```
 
----
+> **Tip:** Alternatively, upload model files directly through the Hugging Face Space **Files** tab in your browser — no LFS setup needed for files under 5 GB.
 
-## Material Cluster Means (from `material_set_enriched.ipynb`)
+### Step 3 — Set secret environment variables
 
-| Cluster | Damage | Strength | Age | Water |
-|---|---|---|---|---|
-| 0 | Low | 54.5 MPa | 33 days | 163.2 kg/m³ |
-| 1 | Medium | 35.8 MPa | 90 days | 185.7 kg/m³ |
-| 2 | High | 19.2 MPa | 180 days | 207.4 kg/m³ |
+On Hugging Face, **do not** use a `.env` file. Instead:
 
-Mapping: `defect_cluster i ↔ material_cluster i` (symmetric severity).
+1. Open your Space → **Settings** → **Variables and secrets**.
+2. Click **New secret** and add each sensitive variable:
 
----
-
-## Defect Cluster Assignment Thresholds
-
-| Condition | Cluster |
+| Secret name | Value |
 |---|---|
-| GAI < 5% (unreliable) | 0 (low) |
-| GAI < 15% AND SI < 30 | 0 (Stage 1) |
-| GAI < 35% AND SI ≥ 30 | 1 (Stage 2) |
-| GAI ≥ 35% AND SI ≥ 60 | 2 (Stage 3) |
-| GAI ≥ 35% AND SI < 40 | 2 (Stage 4) |
-| Transitional zone | 1 (medium) |
+| `ROBOFLOW_API_KEY` | Your Roboflow API key |
+
+3. Click **New variable** (non-secret) for the rest:
+
+| Variable name | Value |
+|---|---|
+| `MODELS_DIR` | `./saved_models/` |
+| `ROBOFLOW_MODEL_ID` | `concrete_detection/6` |
+| `SEG_THRESHOLD` | `0.90` |
+| `CONF_THRESHOLD` | `0.90` |
+| `SHOW_MASK` | `true` |
+
+The app reads all of these via `os.getenv()`, so it works on both local (`.env` file) and HF Spaces (Space secrets/variables) without any code change.
+
+### Step 4 — Wait for the build
+
+Hugging Face automatically installs `requirements.txt` and starts the app. Watch the **Logs** tab for progress. Once the build finishes your Space is live at:
+
+```
+https://huggingface.co/spaces/<your-username>/<your-space-name>
+```
+
+---
+
+## 🧩 Adding Roboflow
+
+If you skip `ROBOFLOW_API_KEY`, the pipeline uses the full uploaded image as the ROI — the app still works correctly. To enable Roboflow:
+
+1. Uncomment the Roboflow lines in `requirements.txt`.
+2. Set `ROBOFLOW_API_KEY` in your `.env` / Space secrets.
+3. Make sure `ROBOFLOW_MODEL_ID` matches your published model version.
+
+---
+
+## 📄 License
+
+MIT
