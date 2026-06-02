@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # requirements.txt — Concrete Anomaly Inspector (HF Spaces deployment)
-# Clean Stack for Python 3.10 and Gradio 4.44 Workspace
+# Clean Stack optimized for Python 3.10 and Gradio 5 Workspace
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Core ML / DL (Forced stable CPU wheels to prevent container compilation crashes) ──
@@ -9,23 +9,23 @@ torch==2.1.2+cpu
 torchvision==0.16.2+cpu
 
 # ── Computer Vision & Pipeline Foundations ────────────────────────────────────
-ultralytics==8.2.2              # Replaces inference package cleanly without locking 'typer'
-opencv-python-headless==4.9.0.80 # Mandatory on Hugging Face Spaces (no desktop display server)
+ultralytics==8.2.2              
+opencv-python-headless==4.9.0.80 
 pillow==10.2.0
 
 # ── Numerical / Analytics ─────────────────────────────────────────────────────
-numpy==1.26.4                   # Highly stable standard array processing engine
+numpy==1.26.4                   
 scipy==1.11.4
 scikit-learn==1.3.2
 
 # ── Model Loading & Serialization ─────────────────────────────────────────────
-joblib==1.3.2                   # Safely deserializes your KMeans stage and scaler pickle objects
+joblib==1.3.2                   
 
 # ── Plotting / Visual Inspection Card ─────────────────────────────────────────
 matplotlib==3.8.2
 
 # ── Web App Dashboard Deployment ──────────────────────────────────────────────
-gradio==4.44.1                  # Perfectly aligns with your Space metadata target
+gradio>=5.0.0                   # Upgraded to handle modern huggingface_hub layouts natively
 
 # ── Local System / Environment Mock ───────────────────────────────────────────
 python-dotenv==1.0.0

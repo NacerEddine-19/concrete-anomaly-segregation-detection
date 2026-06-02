@@ -1132,7 +1132,7 @@ if __name__ == "__main__":
         theme=gr.themes.Soft(
             primary_hue="blue",
             secondary_hue="orange",
-            font=[gr.themes.GoogleFont("DM Sans"), "sans-serif"],
+            font=gr.themes.GoogleFont("DM Sans"),
         ),
         css="""
             .gradio-container { max-width: 1100px !important; }
