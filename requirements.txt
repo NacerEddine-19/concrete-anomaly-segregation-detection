@@ -30,5 +30,4 @@ gradio==4.44.1                     # Explicitly match the SDK version pinned in 
 python-dotenv==1.0.0
 
 # ── Roboflow / Inference ──────────────────────────────────────────────────────
-inference==0.9.18                  # Downgraded to clear deep dependency blocks on Python 3.10
-inference-sdk==0.1.2
+inference==0.9.18                  # Automatically pulls its own matching SDK package layer
