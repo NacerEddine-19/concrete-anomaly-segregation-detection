@@ -13,6 +13,8 @@ sdk: streamlit
 
 sdk\_version: 1.52.2
 
+python_version: 3.10
+
 app\_file: app.py
 
 pinned: false
