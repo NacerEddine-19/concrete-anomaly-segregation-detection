@@ -942,16 +942,18 @@ def _html_card(key: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 _PLACEHOLDER_IMG = Image.new("RGB", (600, 120), "#f0f4ff")
 
-with gr.Blocks(title="\U0001f3d7\ufe0f Concrete Anomaly Inspector") as demo:
+with gr.Blocks(title="Concrete Anomaly Inspector", css="""
+    .gradio-container { max-width: 1100px !important; }
+    footer { display: none !important; }""") as demo:
 
     # ── Header ────────────────────────────────────────────────────────────────
     gr.Markdown(
         """
-# \U0001f3d7\ufe0f Concrete Anomaly Inspector
-Upload a concrete surface photo and the full 5-stage inspection pipeline runs automatically.
+    # \U0001f3d7\ufe0f Concrete Anomaly Inspector
+    Upload a concrete surface photo and the full 5-stage inspection pipeline runs automatically.
 
-> **Pipeline:** Roboflow detection \u2192 ResNet-18 classification \u2192 U-Net segmentation \u2192
-> LAI heatmap \u2192 KMeans + rule-based stage assignment \u2192 inspection card
+    > **Pipeline:** Roboflow detection \u2192 ResNet-18 classification \u2192 U-Net segmentation \u2192
+    > LAI heatmap \u2192 KMeans + rule-based stage assignment \u2192 inspection card
         """
     )
 
@@ -1129,13 +1131,4 @@ if __name__ == "__main__":
         server_name="0.0.0.0", 
         server_port=7860,
         show_error=True,
-        theme=gr.themes.Soft(
-            primary_hue="blue",
-            secondary_hue="orange",
-            font=gr.themes.GoogleFont("DM Sans"),
-        ),
-        css="""
-            .gradio-container { max-width: 1100px !important; }
-            footer { display: none !important; }
-        """,
     )
