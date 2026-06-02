@@ -1,33 +1,31 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # requirements.txt — Concrete Anomaly Inspector (HF Spaces deployment)
-# Resolved Dependency Hierarchy for Python 3.10 and Roboflow Inference
+# Clean Stack for Python 3.10 and Gradio 4.44 Workspace
 # ──────────────────────────────────────────────────────────────────────────────
 
-# ── Core ML / DL (Forced stable CPU-only wheels to prevent compilation crashes) ──
+# ── Core ML / DL (Forced stable CPU wheels to prevent container compilation crashes) ──
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.1.2+cpu
 torchvision==0.16.2+cpu
 
-# ── Computer Vision ───────────────────────────────────────────────────────────
-opencv-python-headless==4.9.0.80   # Headless variant required on HF Spaces (no X server)
+# ── Computer Vision & Pipeline Foundations ────────────────────────────────────
+ultralytics==8.2.2              # Replaces inference package cleanly without locking 'typer'
+opencv-python-headless==4.9.0.80 # Mandatory on Hugging Face Spaces (no desktop display server)
 pillow==10.2.0
 
-# ── Numerical / Scientific (Aligned with inference upper bounds) ──────────────
-numpy==1.25.2                      # Solves the strict upper-bound dependency block
+# ── Numerical / Analytics ─────────────────────────────────────────────────────
+numpy==1.26.4                   # Highly stable standard array processing engine
 scipy==1.11.4
 scikit-learn==1.3.2
 
-# ── Persistence / Serialization ───────────────────────────────────────────────
-joblib==1.3.2                      # Safe fallback for loading your KMeans and Scaler pkl files
+# ── Model Loading & Serialization ─────────────────────────────────────────────
+joblib==1.3.2                   # Safely deserializes your KMeans stage and scaler pickle objects
 
-# ── Plotting ──────────────────────────────────────────────────────────────────
+# ── Plotting / Visual Inspection Card ─────────────────────────────────────────
 matplotlib==3.8.2
 
-# ── Web UI ────────────────────────────────────────────────────────────────────
-gradio==4.44.1                     # Explicitly match the SDK version pinned in your Space metadata
+# ── Web App Dashboard Deployment ──────────────────────────────────────────────
+gradio==4.44.1                  # Perfectly aligns with your Space metadata target
 
-# ── Config / Environment ──────────────────────────────────────────────────────
+# ── Local System / Environment Mock ───────────────────────────────────────────
 python-dotenv==1.0.0
-
-# ── Roboflow / Inference ──────────────────────────────────────────────────────
-inference==0.9.18                  # Requires numpy<=1.25.2
