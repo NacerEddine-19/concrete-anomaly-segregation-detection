@@ -2,7 +2,7 @@
 .env
 
 # Model weights (large binary files — use Git LFS or HF Hub)
-saved_models/
+# saved_models/
 
 # Python
 __pycache__/
