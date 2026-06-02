@@ -899,8 +899,8 @@ STAGE_INFO = {
     "s2": ("#fb5607",
            "🤖 Stage 2 — ResNet-18 Classification",
            "A fine-tuned ResNet-18 (4-class head with dropout regularisation) classifies "
-           "the ROI into **crack**, **crack_segregation**, **segregation**, or "
-           "**normal**. The probability bar chart shows the model's confidence for every "
+           "the ROI into <span style="font-weight:bold">crack</span><span style="font-weight:bold">crack_segregation</span><span style="font-weight:bold">segregation</span>or "
+           "<span style="font-weight:bold">normal</b>. The probability bar chart shows the model's confidence for every "
            "class so you can judge borderline cases."),
     "s3": ("#8338ec",
            "🧩 Stage 3 — U-Net Segmentation & LAI Heatmap",
@@ -911,10 +911,10 @@ STAGE_INFO = {
            "assignment."),
     "s4": ("#ffbe0b",
            "📊 Stage 4 — Stage Assignment (KMeans vs Rule-based)",
-           "Two independent methods assign a damage stage using **GAI** (Global Anomaly "
-           "Index — fraction of anomalous pixels) and **SI_ia** (Segregation Index — "
-           "spatial non-uniformity). **KMeans** is the primary data-driven result; the "
-           "**rule-based** method uses fixed thresholds for interpretability. Disagreement "
+           "Two independent methods assign a damage stage using <span style="font-weight:bold">GAI</span>(Global Anomaly "
+           "Index — fraction of anomalous pixels) and <span style="font-weight:bold">SI_ia</span>(Segregation Index — "
+           "spatial non-uniformity). <span style="font-weight:bold">KMeans</span>is the primary data-driven result; the "
+           "<span style="font-weight:bold">rule-based</span>method uses fixed thresholds for interpretability. Disagreement "
            "is flagged explicitly."),
     "s5": ("#2ca02c",
            "📋 Stage 5 — Final Inspection Card",
@@ -931,7 +931,7 @@ def _html_card(key: str) -> str:
     css = _CARD_CSS.format(color=color)
     return (
         f"<div style='{css}'>"
-        f"<b style='font-size:1.05em;color:#1c2541'>{title}**<br>"
+        f"<b style='font-size:1.05em;color:#1c2541'>{title}</b><br>"
         f"<span style='color:#444;font-size:0.92em;line-height:1.55'>{body}</span>"
         f"</div>"
     )
@@ -1112,8 +1112,8 @@ with gr.Blocks(title="Concrete Anomaly Inspector", css="""
   </tbody>
 </table>
 <p style="font-size:0.78em;color:#5a6680;margin:8px 14px 6px;line-height:1.5">
-  <b style="color:#7a8aaa">GAI** = Global Anomaly Index (anomalous pixels / total pixels &times; 100).&nbsp;
-  <b style="color:#7a8aaa">SI_ia** = Segregation Index via Image Analysis (spatial non-uniformity of anomaly distribution, 0&ndash;100).
+  <b style="color:#7a8aaa">GAI</span>= Global Anomaly Index (anomalous pixels / total pixels &times; 100).&nbsp;
+  <b style="color:#7a8aaa">SI_ia</span>= Segregation Index via Image Analysis (spatial non-uniformity of anomaly distribution, 0&ndash;100).
   Stage boundaries reflect the rule-based method; KMeans assignment may differ on borderline cases.
 </p>
 </div>
