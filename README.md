@@ -1,15 +1,14 @@
 ---
 title: Concrete Anomaly Segregation Detection
-emoji: 📚
+emoji: 🏗️
 colorFrom: blue
 colorTo: gray
-sdk: streamlit
+sdk: gradio
 sdk_version: 1.52.2
 app_file: app.py
-python_version: '3.10'
+python_version: "3.10"
 pinned: false
 license: mit
-short_description: An AI-powered computer vision platform designed for structur
 ---
 
 # 🏗️ Concrete Anomaly Inspector
