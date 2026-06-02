@@ -1,26 +1,14 @@
-
 ---
-
 title: Concrete Anomaly Segregation Detection
-
 emoji: 🏗️
-
 colorFrom: blue
-
 colorTo: gray
-
 sdk: streamlit
-
-sdk\_version: 1.52.2
-
-python_version: 3.10
-
-app\_file: app.py
-
+sdk_version: 1.52.2
+app_file: app.py
+python_version: "3.10"
 pinned: false
-
 license: mit
-
 ---
 
 # 🏗️ Concrete Anomaly Inspector
@@ -214,4 +202,3 @@ If you skip `ROBOFLOW\_API\_KEY`, the pipeline uses the full uploaded image as t
 ## 📄 License
 
 MIT
-
