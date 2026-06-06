@@ -3,9 +3,9 @@
 Runs the full inspection pipeline on one uploaded image:
   1. Roboflow → ROI crop (fallback: full image)
   2. ResNet-18 → classify (crack | crack_segregation | segregation | normal)
-  3. U-Net → binary anomaly mask (seg classes only)
+  3. U-Net → binary anomaly mask (all classes evaluate; fallback placeholders handled)
   4. extract_features → GAI + SI_ia
-  5. Stage assignment → KMeans (primary) + rule-based (reference)
+  5. Stage assignment → KMeans (primary) + rule-based (reference) [Segregation classes only]
   6. Inspection card → 4-panel or 2-panel figure
 
 Sensitive config is loaded from a .env file (or HF Spaces secrets).
@@ -90,6 +90,9 @@ CLASS_HEX = {
 }
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Placeholder elements
+_PLACEHOLDER_IMG = Image.new("RGB", (600, 120), "#f0f4ff")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MODEL ARCHITECTURES (verbatim from the training notebook)
@@ -419,7 +422,6 @@ def plot2_classification(pred_class, confidence, all_probs, crop_img) -> Image.I
     return _fig_to_pil(fig)
 
 
-
 # ── Custom diverging colormap for LAI heatmap (blue=below GAI, red=above GAI) ─
 _LAI_CMAP = LinearSegmentedColormap.from_list(
     "lai_cmap",
@@ -429,8 +431,7 @@ _LAI_CMAP = LinearSegmentedColormap.from_list(
 
 
 def _compute_lai_grid(mask: np.ndarray, grid_size: int = 10) -> np.ndarray:
-    """Return a (grid_size × grid_size) float32 array of LAI values.
-    mask : binary uint8 (H × W), values 0 or 1."""
+    """Return a (grid_size × grid_size) float32 array of LAI values."""
     H, W = mask.shape
     h_step = max(1, H // grid_size)
     w_step = max(1, W // grid_size)
@@ -444,26 +445,17 @@ def _compute_lai_grid(mask: np.ndarray, grid_size: int = 10) -> np.ndarray:
     return grid
 
 def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
-                       pred_class, confidence, stage_label) -> Image.Image:
-    """Plot 3 — LAI heatmap with diverging colormap centred on GAI.
+                      pred_class, confidence, stage_label) -> Image.Image:
+    """Plot 3 — LAI heatmap with diverging colormap centred on GAI."""
+    # Ensure mask format is unified even for non-segregation/blank structures
+    binary_mask = (pred_mask > 0).astype(np.uint8) if pred_mask is not None else np.zeros(crop_img.shape[:2], dtype=np.uint8)
 
-    Logic and design ported directly from lai_heatmap.py:
-      Panel 1 : original concrete crop
-      Panel 2 : 10x10 LAI grid heatmap (blue<GAI, white=GAI, red>GAI),
-                each cell annotated with its value, colorbar with yellow GAI line
-      Panel 3 : blended overlay (crop + LAI colourmap) with grid lines and legend
-    """
-    # Normalise mask to binary uint8 (0/1) — expected by _compute_lai_grid
-    binary_mask = (pred_mask > 0).astype(np.uint8)
-
-    # Convert: app stores GAI as percent (e.g. 12.5), lai_heatmap uses 0-1 fraction
     gai_ref   = gai_score / 100.0
-    si_ia_ref = si_ia          # already 0-100
+    si_ia_ref = si_ia          
 
     grid_size = 10
     lai_grid  = _compute_lai_grid(binary_mask, grid_size=grid_size)
 
-    # Upscale grid to crop resolution for overlay
     H, W = crop_img.shape[:2]
     lai_full = cv2.resize(lai_grid, (W, H), interpolation=cv2.INTER_NEAREST)
 
@@ -478,9 +470,8 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
     axes[0].imshow(crop_img)
     axes[0].set_title("Concrete Crop", color=title_color, fontsize=12, fontweight="bold")
     axes[0].axis("off")
-    axes[0].set_facecolor("#0f0f0f")
 
-    # ── Panel 2: LAI heatmap (diverging around GAI) ───────────────────────────
+    # ── Panel 2: LAI heatmap ───────────────────────────
     vmin = max(0.0, gai_ref - 0.3)
     vmax = min(1.0, gai_ref + 0.3)
     vmin = min(vmin, lai_grid.min())
@@ -500,11 +491,9 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
     cb.ax.yaxis.set_tick_params(color=subtitle_color)
     plt.setp(cb.ax.yaxis.get_ticklabels(), color=subtitle_color)
 
-    # GAI reference line on colorbar
     cb.ax.axhline(y=(gai_ref - vmin) / (vmax - vmin),
                   color="yellow", linewidth=2, linestyle="--")
 
-    # Annotate each cell with its LAI value
     for r in range(grid_size):
         for c in range(grid_size):
             val = lai_grid[r, c]
@@ -524,16 +513,15 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
     for spine in axes[1].spines.values():
         spine.set_edgecolor("#444")
 
-    # ── Panel 3: blended overlay (crop + LAI colourmap) ───────────────────────
+    # ── Panel 3: blended overlay ───────────────────────
     norm_lai = (lai_full - vmin) / (vmax - vmin + 1e-9)
     norm_lai = np.clip(norm_lai, 0, 1)
 
-    rgba  = _LAI_CMAP(norm_lai)                        # (H, W, 4)
+    rgba  = _LAI_CMAP(norm_lai)                        
     rgb_h = (rgba[:, :, :3] * 255).astype(np.uint8)
 
     blended = cv2.addWeighted(crop_img, 0.5, rgb_h, 0.5, 0)
 
-    # Grid lines
     h_step = max(1, H // grid_size)
     w_step = max(1, W // grid_size)
     for r in range(1, grid_size):
@@ -549,9 +537,7 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
         color=title_color, fontsize=11, fontweight="bold",
     )
     axes[2].axis("off")
-    axes[2].set_facecolor("#0f0f0f")
 
-    # Legend
     legend_patches = [
         mpatches.Patch(color="#1a78c2", label=f"Below GAI (<{gai_ref * 100:.1f}%)"),
         mpatches.Patch(color="#ffffff", label=f"≈ GAI ({gai_ref * 100:.1f}%)"),
@@ -566,7 +552,7 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
 
     fig.suptitle(
         f"Detection 1  |  LAI Heatmap Analysis\n"
-        f"GAI = {gai_ref * 100:.2f}%   SI_ia = {si_ia_ref:.2f}%   {stage_label}",
+        f"GAI = {gai_ref * 100:.2f}%  |  SI_ia = {si_ia_ref:.2f}%  |  {stage_label}",
         fontsize=13, fontweight="bold", color="white", y=1.01,
     )
 
@@ -616,7 +602,7 @@ def plot4_stage_comparison(stage_label_km, stage_label_rb,
     _panel(axs[1], stage_label_rb, "Rule-based  (reference)",
            gai_score, si_ia, crop_img, rb_sub)
 
-    agree     = stage_label_km == stage_label_rb
+    agree      = stage_label_km == stage_label_rb
     agree_txt = "✅  Both methods agree" if agree else "⚠️  Methods disagree — KMeans used"
     fig.text(0.5, -0.05, agree_txt, ha="center", fontsize=10.5,
              color="#2ca02c" if agree else "#e63946", fontweight="bold",
@@ -628,9 +614,9 @@ def plot4_stage_comparison(stage_label_km, stage_label_rb,
 
 
 def plot5_inspection_card(crop_img, pred_mask, pred_class,
-                           confidence, all_probs,
-                           gai_score, si_ia,
-                           stage_label, defect_cluster) -> Image.Image:
+                            confidence, all_probs,
+                            gai_score, si_ia,
+                            stage_label, defect_cluster) -> Image.Image:
     """Plot 5 — Final 4-panel (seg) or 2-panel (crack/normal) inspection card."""
     MAT_ROWS = [
         ("mat_fine_aggregate",      "Fine Agg."),
@@ -643,7 +629,6 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
     ]
 
     if pred_class in ("segregation", "crack_segregation") and defect_cluster >= 0:
-        # ── 4-panel card ──────────────────────────────────────────────────────
         mat   = MATERIAL_CLUSTER_MEANS[defect_cluster]
         color = DAMAGE_COLOR[defect_cluster]
 
@@ -654,7 +639,6 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
         gs = gridspec.GridSpec(1, 4, figure=fig,
                                width_ratios=[1.6, 1.1, 1.05, 1.4], wspace=0.36)
 
-        # P1 Image with mask overlay
         ax1 = fig.add_subplot(gs[0, 0])
         ax1.imshow(_mask_overlay(crop_img, pred_mask, pred_class))
         ax1.set_title("Image", fontsize=11, fontweight="bold", pad=7)
@@ -662,7 +646,6 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
         for sp in ax1.spines.values():
             sp.set_edgecolor(color); sp.set_linewidth(3.5)
 
-        # P2 Identity table
         ax2 = fig.add_subplot(gs[0, 1])
         ax2.set_facecolor("#f0f9f0")
         ax2.set_xticks([]); ax2.set_yticks([])
@@ -675,9 +658,9 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
             ("Stage",           stage_label,                  True),
             ("Stage rank",      str(defect_cluster + 1),      True),
             ("Confidence",      f"{confidence * 100:.1f}%",   True),
-            ("GAI score",       f"{gai_score:.3f} %",         True),
-            ("SI-IA score",     f"{si_ia:.3f}",               True),
-            ("— Material —",    "",                           False),
+            ("GAI score",       f"{gai_score:.3f} %",          True),
+            ("SI-IA score",     f"{si_ia:.3f}",                True),
+            ("— Material —",    "",                            False),
             ("Strength",        f"{mat['mat_strength']} MPa", True),
             ("Age",             f"{mat['mat_age']:.0f} days", True),
             ("Water",           f"{mat['mat_water']} kg/m³",  True),
@@ -693,7 +676,6 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
                          fontweight="bold" if bold else "normal",
                          color="#1c2541")
 
-        # P3 Defect signal bars
         ax3 = fig.add_subplot(gs[0, 2])
         signal_vals  = [si_ia, gai_score, confidence * 100]
         signal_names = ["SI-IA score", "GAI score", "Confidence"]
@@ -710,7 +692,6 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
         ax3.spines[["top", "right"]].set_visible(False)
         ax3.tick_params(axis="both", labelsize=8)
 
-        # P4 Material means
         ax4 = fig.add_subplot(gs[0, 3])
         mk   = [k for k, _ in MAT_ROWS]
         ml   = [n for _, n in MAT_ROWS]
@@ -779,16 +760,13 @@ def run_pipeline(image: Image.Image,
                  conf_threshold: float = CONF_THRESHOLD,
                  show_mask: bool = SHOW_MASK):
     if not MODELS_LOADED:
-        raise gr.Error(
-            "Models could not be loaded. "
-            "Check MODELS_DIR and that all .pth / .pkl / .json files exist."
-        )
+        raise gr.Error("Models could not be loaded. Check structural setup directories.")
     if image is None:
         raise gr.Error("Please upload a concrete image first.")
 
     # ── Normalise input ───────────────────────────────────────────────────────
     global SHOW_MASK
-    SHOW_MASK = show_mask   # honour the UI toggle for this run
+    SHOW_MASK = show_mask   
     orig_img = np.array(image.convert("RGB"))
     H, W     = orig_img.shape[:2]
 
@@ -799,9 +777,7 @@ def run_pipeline(image: Image.Image,
     if concrete_seg_model is not None:
         try:
             import supervision as sv
-            rf_res = concrete_seg_model.infer(
-                cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
-            )[0]
+            rf_res = concrete_seg_model.infer(cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR))[0]
             dets = sv.Detections.from_inference(rf_res)
             if dets.confidence is not None:
                 dets = dets[dets.confidence >= conf_threshold]
@@ -820,25 +796,19 @@ def run_pipeline(image: Image.Image,
     cls_tensor = _to_tensor(crop_img, CLS_IMG_SIZE)
     pred_class, confidence, all_probs = classify_image(classifier, cls_tensor)
 
-    # ── Step 3: Segment (U-Net) — only for seg classes ───────────────────────
-    pred_mask  = None
-    gai_score  = 0.0
-    si_ia      = 0.0
-    features   = {}
-
-    if pred_class in ("segregation", "crack_segregation"):
-        seg_tensor = _to_tensor(crop_img, SEG_IMG_SIZE)
-        mask_raw   = segment_image(seg_model, seg_tensor, seg_threshold)
-        aspect     = crop_img.shape[0] / max(crop_img.shape[1], 1)
-        if aspect > 1.4:
-            pred_mask = apply_circular_mask(
-                remove_edge_artifacts(mask_raw, margin_pct=0.05), margin=0.03
-            )
-        else:
-            pred_mask = remove_edge_artifacts(mask_raw, margin_pct=0.04)
-        features   = extract_features(pred_mask, grid_size=10)
-        gai_score  = features["anomaly_area_pct"]
-        si_ia      = features["si_ia_score"]
+    # ── Step 3: Segment (U-Net) — Now always evaluating metrics ───────────────
+    seg_tensor = _to_tensor(crop_img, SEG_IMG_SIZE)
+    mask_raw   = segment_image(seg_model, seg_tensor, seg_threshold)
+    
+    aspect = crop_img.shape[0] / max(crop_img.shape[1], 1)
+    if aspect > 1.4:
+        pred_mask = apply_circular_mask(remove_edge_artifacts(mask_raw, margin_pct=0.05), margin=0.03)
+    else:
+        pred_mask = remove_edge_artifacts(mask_raw, margin_pct=0.04)
+        
+    features    = extract_features(pred_mask, grid_size=10)
+    gai_score   = features["anomaly_area_pct"]
+    si_ia       = features["si_ia_score"]
 
     # ── Step 4: Stage assignment ──────────────────────────────────────────────
     stage_label_km, stage_rank_km = assign_stage_kmeans(gai_score, si_ia, pred_class)
@@ -849,16 +819,17 @@ def run_pipeline(image: Image.Image,
     # ── Generate all plots ───────────────────────────────────────────────────
     p1 = plot1_roi(orig_img, crop_img, bbox, pred_class, confidence)
     p2 = plot2_classification(pred_class, confidence, all_probs, crop_img)
-    p3 = (plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
-                             pred_class, confidence, stage_label)
-          if pred_mask is not None else None)
-    p4 = plot4_stage_comparison(stage_label_km, stage_label_rb,
-                                  stage_rank_km, cluster_rb,
-                                  gai_score, si_ia, crop_img)
-    p5 = plot5_inspection_card(crop_img, pred_mask, pred_class,
-                                confidence, all_probs,
-                                gai_score, si_ia,
-                                stage_label, defect_cluster)
+    
+    # Stage 3 is explicitly retained for ALL classes (uses computed mask or flat structures)
+    p3 = plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia, pred_class, confidence, stage_label)
+    
+    # Stage 4 is skipped if the concrete is not classified as an advanced anomaly
+    if pred_class in ("segregation", "crack_segregation"):
+        p4 = plot4_stage_comparison(stage_label_km, stage_label_rb, stage_rank_km, cluster_rb, gai_score, si_ia, crop_img)
+    else:
+        p4 = _PLACEHOLDER_IMG
+
+    p5 = plot5_inspection_card(crop_img, pred_mask, pred_class, confidence, all_probs, gai_score, si_ia, stage_label, defect_cluster)
 
     # ── Summary markdown ──────────────────────────────────────────────────────
     agree_emoji  = "✅" if stage_label_km == stage_label_rb else "⚠️"
@@ -893,36 +864,21 @@ STAGE_INFO = {
     "s1": ("#3a86ff",
            "🔷 Stage 1 — Detection & ROI Crop",
            "Roboflow detects the concrete surface and crops a tight Region of Interest "
-           "(ROI) with a 10% padding. If no detection exceeds the confidence threshold "
-           f"({CONF_THRESHOLD:.0%}), the full image is used as the ROI. A dashed bounding "
-           "box is overlaid on the original to show what the model found."),
+           "(ROI) with a 10% padding. If no detection exceeds the confidence threshold, the full image is used."),
     "s2": ("#fb5607",
            "🤖 Stage 2 — ResNet-18 Classification",
-           "A fine-tuned ResNet-18 (4-class head with dropout regularisation) classifies "
-           "the ROI into crack, crack_segregation, segregation, or "
-           "normal. The probability bar chart shows the model's confidence for every "
-           "class so you can judge borderline cases."),
+           "A fine-tuned ResNet-18 classifies the ROI into crack, crack_segregation, segregation, or normal."),
     "s3": ("#8338ec",
            "🧩 Stage 3 — U-Net Segmentation & LAI Heatmap",
-           "For segregation and crack_segregation images only, a U-Net produces "
-           "a pixel-level binary anomaly mask. The 10×10 Local Anomaly Intensity (LAI) grid "
-           "colours each cell by its local defect density, revealing whether damage is "
-           "scattered, clustered, or uniform — the spatial signature that drives stage "
-           "assignment."),
+           "A U-Net produces a pixel-level binary anomaly mask. The 10×10 Local Anomaly Intensity (LAI) grid "
+           "colours each cell by its local defect density, revealing the spatial signature."),
     "s4": ("#ffbe0b",
            "📊 Stage 4 — Stage Assignment (KMeans vs Rule-based)",
-           "Two independent methods assign a damage stage using GAI (Global Anomaly "
-           "Index — fraction of anomalous pixels) and SI_ia (Segregation Index — "
-           "spatial non-uniformity). KMeans is the primary data-driven result; the "
-           "rule-based method uses fixed thresholds for interpretability. Disagreement "
-           "is flagged explicitly."),
+           "Two independent methods assign a damage stage using GAI and SI_ia scores. "
+           "This metrics overview panel is only shown for segregation-related patterns."),
     "s5": ("#2ca02c",
            "📋 Stage 5 — Final Inspection Card",
-           "The full card summarises everything: image with colour-coded mask overlay, "
-           "identity panel (class, stage, cluster, GAI, SI-IA, estimated material mix), "
-           "defect signal bars, and estimated material composition means derived from the "
-           "KMeans cluster. For crack and normal images a simplified 2-panel "
-           "card is shown."),
+           "The full summary card: image with overlay, identity panel, defect signal bars, and material means."),
 }
 
 
@@ -940,186 +896,55 @@ def _html_card(key: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  GRADIO UI
 # ═══════════════════════════════════════════════════════════════════════════════
-_PLACEHOLDER_IMG = Image.new("RGB", (600, 120), "#f0f4ff")
-
 with gr.Blocks(title="Concrete Anomaly Inspector", css="""
     .gradio-container { max-width: 1100px !important; }
     footer { display: none !important; }""") as demo:
 
-    # ── Header ────────────────────────────────────────────────────────────────
     gr.Markdown(
         """
-    # \U0001f3d7\ufe0f Concrete Anomaly Inspector
-    Upload a concrete surface photo and the full 5-stage inspection pipeline runs automatically.
-
-    > **Pipeline:** Roboflow detection \u2192 ResNet-18 classification \u2192 U-Net segmentation \u2192
-    > LAI heatmap \u2192 KMeans + rule-based stage assignment \u2192 inspection card
+        # 🏗️ Concrete Anomaly Inspector
+        Upload a concrete surface photo and the full 5-stage inspection pipeline runs automatically.
         """
     )
 
-    # ── Input row ─────────────────────────────────────────────────────────────
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=280):
-            img_input = gr.Image(
-                type="pil",
-                label="\U0001f4f7 Upload Concrete Image",
-                height=260,
-            )
-            run_btn = gr.Button("\U0001f680 Run Inspection", variant="primary", size="lg")
-            gr.Markdown(
-                "_Supported classes: `crack` \u00b7 `crack_segregation` \u00b7 "
-                "`segregation` \u00b7 `normal`_"
-            )
+            img_input = gr.Image(type="pil", label="📷 Upload Concrete Image", height=260)
+            run_btn = gr.Button("🚀 Run Inspection", variant="primary", size="lg")
+            gr.Markdown("_Supported classes: `crack` · `crack_segregation` · `segregation` · `normal`_")
 
-            # ── Advanced settings ──────────────────────────────────────────────
-            with gr.Accordion("\u2699\ufe0f Advanced Settings", open=False):
-                gr.Markdown(
-                    "<small style='color:#666'>Adjust thresholds for this run. "
-                    "Changes take effect immediately on the next \u2019Run Inspection\u2019 click. "
-                    "Default values are loaded from your <code>.env</code> file.</small>"
-                )
-                seg_threshold_slider = gr.Slider(
-                    minimum=0.50, maximum=0.99, step=0.01,
-                    value=SEG_THRESHOLD,
-                    label="Segmentation Threshold (SEG_THRESHOLD)",
-                    info="U-Net pixel confidence cutoff. Higher \u2192 fewer but more certain anomaly pixels.",
-                )
-                conf_threshold_slider = gr.Slider(
-                    minimum=0.30, maximum=0.99, step=0.01,
-                    value=CONF_THRESHOLD,
-                    label="Detection Confidence Threshold (CONF_THRESHOLD)",
-                    info="Roboflow ROI confidence cutoff. Lower \u2192 accept weaker detections.",
-                )
-                show_mask_checkbox = gr.Checkbox(
-                    value=SHOW_MASK,
-                    label="Show Mask Overlay (SHOW_MASK)",
-                    info="Blend the anomaly mask colour over the crop in the inspection card.",
-                )
+            with gr.Accordion("⚙️ Advanced Settings", open=False):
+                seg_threshold_slider = gr.Slider(minimum=0.50, maximum=0.99, step=0.01, value=SEG_THRESHOLD, label="Segmentation Threshold (SEG_THRESHOLD)")
+                conf_threshold_slider = gr.Slider(minimum=0.30, maximum=0.99, step=0.01, value=CONF_THRESHOLD, label="Detection Confidence Threshold (CONF_THRESHOLD)")
+                show_mask_checkbox = gr.Checkbox(value=SHOW_MASK, label="Show Mask Overlay (SHOW_MASK)")
 
         with gr.Column(scale=2):
-            summary_out = gr.Markdown(
-                value="_Results will appear here after running the pipeline._",
-                label="Summary",
-            )
+            summary_out = gr.Markdown(value="_Results will appear here after running the pipeline._", label="Summary")
 
     gr.Markdown("---")
 
-    # ── Stage outputs ─────────────────────────────────────────────────────────
-    with gr.Accordion("\U0001f4cc Stage 1 \u2014 Detection & ROI Crop", open=True):
+    with gr.Accordion("📌 Stage 1 — Detection & ROI Crop", open=True):
         gr.HTML(_html_card("s1"))
         plot1_out = gr.Image(label="Detection & ROI Crop")
 
-    with gr.Accordion("\U0001f4cc Stage 2 \u2014 Classification", open=True):
+    with gr.Accordion("📌 Stage 2 — Classification", open=True):
         gr.HTML(_html_card("s2"))
         plot2_out = gr.Image(label="ResNet-18 Classification")
 
-    with gr.Accordion("\U0001f4cc Stage 3 \u2014 Segmentation & LAI Heatmap", open=True):
+    with gr.Accordion("📌 Stage 3 — Segmentation & LAI Heatmap", open=True):
         gr.HTML(_html_card("s3"))
-        plot3_out = gr.Image(label="U-Net Segmentation & LAI Heatmap",
-                              value=_PLACEHOLDER_IMG)
-        gr.Markdown(
-            "_\u2139\ufe0f This plot is only generated for **segregation** or **crack_segregation** images._"
-        )
+        plot3_out = gr.Image(label="U-Net Segmentation & LAI Heatmap")
 
-    with gr.Accordion("\U0001f4cc Stage 4 \u2014 Stage Assignment", open=True):
+    with gr.Accordion("📌 Stage 4 — Stage Assignment", open=True):
         gr.HTML(_html_card("s4"))
         plot4_out = gr.Image(label="KMeans vs Rule-based Stage")
+        gr.Markdown("_ℹ️ This comparison panel is bypassed for standard surface or single crack elements._")
 
-    with gr.Accordion("\U0001f4cc Stage 5 \u2014 Final Inspection Card", open=True):
+    with gr.Accordion("📌 Stage 5 — Final Inspection Card", open=True):
         gr.HTML(_html_card("s5"))
         plot5_out = gr.Image(label="Final Inspection Card")
 
-    # ── Concrete damage stage reference table ─────────────────────────────────
-    with gr.Accordion("\U0001f4d6 Concrete Damage Stage Reference", open=False):
-        gr.HTML("""
-<div style="overflow-x:auto;margin:6px 0;background:#1a1d2e;border-radius:10px;padding:2px;border:1px solid #2e3350">
-<table style="width:100%;border-collapse:collapse;font-size:0.87em;font-family:sans-serif;background:transparent">
-  <thead>
-    <tr style="background:#111827;text-align:left;border-bottom:2px solid #3a4060">
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">Stage</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">Label</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">GAI range</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">SI_ia range</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">Damage level</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">Visual description</th>
-      <th style="padding:11px 14px;color:#a8b4cc;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;font-size:0.82em">Recommended action</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="background:#1e2d22;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#2dc653;font-size:0.95em;letter-spacing:0.02em">NORMAL</td>
-      <td style="padding:9px 14px;color:#c8d6c0;font-weight:500">No defect</td>
-      <td style="padding:9px 14px;color:#7a9a80;font-family:monospace">&mdash;</td>
-      <td style="padding:9px 14px;color:#7a9a80;font-family:monospace">&mdash;</td>
-      <td style="padding:9px 14px"><span style="background:#1a3d1e;color:#2dc653;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">None</span></td>
-      <td style="padding:9px 14px;color:#b8ccb4">Uniform surface, no visible segregation or cracking</td>
-      <td style="padding:9px 14px;color:#b8ccb4">Routine monitoring only</td>
-    </tr>
-    <tr style="background:#1a2236;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#5b9fff;font-size:0.95em;letter-spacing:0.02em">STAGE 1</td>
-      <td style="padding:9px 14px;color:#c0ccde;font-weight:500">Incipient</td>
-      <td style="padding:9px 14px;color:#7a8fb0;font-family:monospace">GAI &lt; 15 %</td>
-      <td style="padding:9px 14px;color:#7a8fb0;font-family:monospace">SI_ia &lt; 30</td>
-      <td style="padding:9px 14px"><span style="background:#162040;color:#5b9fff;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">Low</span></td>
-      <td style="padding:9px 14px;color:#b0bcd0">Sparse, isolated anomaly pixels; damage not yet clustered</td>
-      <td style="padding:9px 14px;color:#b0bcd0">Log and monitor; re-inspect in 3&ndash;6 months</td>
-    </tr>
-    <tr style="background:#26221a;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#f0a500;font-size:0.95em;letter-spacing:0.02em">STAGE 2</td>
-      <td style="padding:9px 14px;color:#d4c8a8;font-weight:500">Developing</td>
-      <td style="padding:9px 14px;color:#9a8c60;font-family:monospace">GAI 15&ndash;35 %</td>
-      <td style="padding:9px 14px;color:#9a8c60;font-family:monospace">SI_ia &ge; 30</td>
-      <td style="padding:9px 14px"><span style="background:#3a2c00;color:#f0a500;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">Medium</span></td>
-      <td style="padding:9px 14px;color:#c8bc98">Anomaly pixels forming clusters; spatial non-uniformity rising</td>
-      <td style="padding:9px 14px;color:#c8bc98">Detailed inspection; consider surface treatment</td>
-    </tr>
-    <tr style="background:#261e1a;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#ff6b35;font-size:0.95em;letter-spacing:0.02em">STAGE 3</td>
-      <td style="padding:9px 14px;color:#d4c0b8;font-weight:500">Advanced</td>
-      <td style="padding:9px 14px;color:#9a7060;font-family:monospace">GAI &ge; 35 %</td>
-      <td style="padding:9px 14px;color:#9a7060;font-family:monospace">SI_ia &ge; 60</td>
-      <td style="padding:9px 14px"><span style="background:#3a1800;color:#ff6b35;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">High</span></td>
-      <td style="padding:9px 14px;color:#ccb8ae">Heavy, spatially clustered damage; large contiguous zones</td>
-      <td style="padding:9px 14px;color:#ccb8ae">Structural assessment required; repair planning</td>
-    </tr>
-    <tr style="background:#281818;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#ff4d58;font-size:0.95em;letter-spacing:0.02em">STAGE 4</td>
-      <td style="padding:9px 14px;color:#d4b8b8;font-weight:500">Severe</td>
-      <td style="padding:9px 14px;color:#9a6060;font-family:monospace">GAI &ge; 35 %</td>
-      <td style="padding:9px 14px;color:#9a6060;font-family:monospace">SI_ia &lt; 40</td>
-      <td style="padding:9px 14px"><span style="background:#3a0808;color:#ff4d58;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">Critical</span></td>
-      <td style="padding:9px 14px;color:#ccaaaa">Diffuse widespread damage covering most of the surface</td>
-      <td style="padding:9px 14px;color:#ccaaaa">Immediate intervention; potential load-bearing risk</td>
-    </tr>
-    <tr style="background:#211a2e;border-bottom:1px solid #2a3540">
-      <td style="padding:9px 14px;font-weight:700;color:#a066e8;font-size:0.95em;letter-spacing:0.02em">TRANSITIONAL</td>
-      <td style="padding:9px 14px;color:#c8b8d8;font-weight:500">Borderline</td>
-      <td style="padding:9px 14px;color:#8070a0;font-family:monospace">15&ndash;35 %</td>
-      <td style="padding:9px 14px;color:#8070a0;font-family:monospace">Mixed</td>
-      <td style="padding:9px 14px"><span style="background:#2a1040;color:#a066e8;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">Medium</span></td>
-      <td style="padding:9px 14px;color:#c0b0d0">Metrics fall between defined stages; ambiguous spatial pattern</td>
-      <td style="padding:9px 14px;color:#c0b0d0">Cross-check with KMeans result; manual review advised</td>
-    </tr>
-    <tr style="background:#1e1e22">
-      <td style="padding:9px 14px;font-weight:700;color:#7a7a8e;font-size:0.95em;letter-spacing:0.02em">UNRELIABLE</td>
-      <td style="padding:9px 14px;color:#9898a8;font-weight:500">Low signal</td>
-      <td style="padding:9px 14px;color:#6a6a78;font-family:monospace">GAI &lt; 5 %</td>
-      <td style="padding:9px 14px;color:#6a6a78;font-family:monospace">&mdash;</td>
-      <td style="padding:9px 14px"><span style="background:#2a2a32;color:#7a7a8e;font-weight:700;padding:2px 10px;border-radius:12px;font-size:0.88em">N/A</span></td>
-      <td style="padding:9px 14px;color:#9898a8">Too few anomaly pixels for reliable stage inference</td>
-      <td style="padding:9px 14px;color:#9898a8">Lower SEG_THRESHOLD or inspect image quality</td>
-    </tr>
-  </tbody>
-</table>
-<p style="font-size:0.78em;color:#5a6680;margin:8px 14px 6px;line-height:1.5">
-  <b style="color:#7a8aaa">GAI</b> = Global Anomaly Index (anomalous pixels / total pixels &times; 100).&nbsp;
-  <b style="color:#7a8aaa">SI_ia</b> = Segregation Index via Image Analysis (spatial non-uniformity of anomaly distribution, 0&ndash;100).
-  Stage boundaries reflect the rule-based method; KMeans assignment may differ on borderline cases.
-</p>
-</div>
-""")
-
-    # ── Wire up ───────────────────────────────────────────────────────────────
+    # Wire up pipeline execution
     run_btn.click(
         fn=run_pipeline,
         inputs=[img_input, seg_threshold_slider, conf_threshold_slider, show_mask_checkbox],
@@ -1127,8 +952,4 @@ with gr.Blocks(title="Concrete Anomaly Inspector", css="""
     )
 
 if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0", 
-        server_port=7860,
-        show_error=True,
-    )
+    demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
