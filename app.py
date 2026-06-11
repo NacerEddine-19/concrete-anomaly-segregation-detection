@@ -13,7 +13,7 @@ Runs the full inspection pipeline on one uploaded image:
   4. extract_features → GAI + SI_ia
 
   5. Stage assignment → KMeans (primary) + rule-based (reference)
-     — ONLY for segregation / crack_segregation
+      — ONLY for segregation / crack_segregation
 
   6. Inspection card → 4-panel or 2-panel figure
 
@@ -51,8 +51,8 @@ load_dotenv()
 MODELS_DIR        = os.getenv("MODELS_DIR", "./saved_models/")
 ROBOFLOW_API_KEY  = os.getenv("ROBOFLOW_API_KEY",  "")
 ROBOFLOW_MODEL_ID = os.getenv("ROBOFLOW_MODEL_ID", "")
-SEG_THRESHOLD     = float(os.getenv("SEG_THRESHOLD",  "0.60"))
-CONF_THRESHOLD    = float(os.getenv("CONF_THRESHOLD", "0.60"))
+SEG_THRESHOLD     = float(os.getenv("SEG_THRESHOLD",  "0.90"))
+CONF_THRESHOLD    = float(os.getenv("CONF_THRESHOLD", "0.90"))
 SHOW_MASK         = os.getenv("SHOW_MASK", "true").lower() == "true"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -64,7 +64,7 @@ SEG_IMG_SIZE = 256
 CLS_IMG_SIZE = 224
 
 GAI_MIN_THRESHOLD = 0.05
-GAI_LOW           = 0.10
+GAI_LOW           = 0.15
 GAI_HIGH          = 0.35
 
 MATERIAL_CLUSTER_MEANS = {
@@ -82,7 +82,7 @@ MATERIAL_CLUSTER_MEANS = {
         "mat_strength": 19.2, "mat_age": 180.0},
 }
 DAMAGE_LABEL = {0: "Low damage",    1: "Medium damage",  2: "High damage"}
-DAMAGE_COLOR = {0: "#2ca02c",       1: "#ff7f0e",         2: "#d62728"}
+DAMAGE_COLOR = {0: "#2ca02c",       1: "#ff7f0e",          2: "#d62728"}
 CLASS_COLOR  = {
     "crack":             (255,  50,  50),
     "crack_segregation": (255, 165,   0),
@@ -288,6 +288,19 @@ def apply_circular_mask(mask: np.ndarray, margin: float = 0.03) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  STAGE ASSIGNMENT
 # ═══════════════════════════════════════════════════════════════════════════════
+def _get_stage_severity(stage_str: str) -> float:
+    mapping = {
+        "STAGE 4": 4.0,
+        "STAGE 3": 3.0,
+        "STAGE 2": 2.0,
+        "TRANSITIONAL": 1.5,
+        "STAGE 1": 1.0,
+        "UNRELIABLE": 0.0,
+        "N/A": -1.0
+    }
+    return mapping.get(stage_str, -1.0)
+
+
 def assign_stage(gai_pct: float, si: float, cls_name: str) -> tuple[str, int]:
     if cls_name in ("normal", "crack"):
         return "N/A", -1
@@ -304,7 +317,7 @@ def assign_stage_kmeans(gai_pct: float, si: float, cls_name: str) -> tuple[str, 
     if cls_name in ("normal", "crack"):
         return "N/A", -1
     if gai_pct / 100.0 < GAI_MIN_THRESHOLD:
-        return "UNRELIABLE", -1
+        return "UNRELIABLE", 0
     feat    = km_scaler.transform([[gai_pct, si]])
     raw_id  = int(km_model.predict(feat)[0])
     rank    = km_rank_map[raw_id]
@@ -513,7 +526,7 @@ def plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
         cv2.line(blended, (c * w_step, 0), (c * w_step, H), (200, 200, 200), 1)
 
     axes[2].imshow(blended)
-    stage_text = stage_label.split("\u2014")[-1].strip() if "\u2014" in stage_label else stage_label
+    stage_text = stage_label.split("—")[-1].strip() if "—" in stage_label else stage_label
     axes[2].set_title(
         f"LAI Overlay  |  SI_ia = {si_ia_ref:.1f}%\n"
         f"Class: {pred_class.upper()} ({confidence * 100:.0f}%)  {stage_text}",
@@ -587,7 +600,7 @@ def plot4_stage_comparison(stage_label_km, stage_label_rb,
            gai_score, si_ia, crop_img, rb_sub)
 
     agree     = stage_label_km == stage_label_rb
-    agree_txt = "✅  Both methods agree" if agree else "⚠️  Methods disagree — KMeans used"
+    agree_txt = "✅  Both methods agree" if agree else "⚠️  Methods disagree — Highest stage selected"
     fig.text(0.5, -0.05, agree_txt, ha="center", fontsize=10.5,
              color="#2ca02c" if agree else "#e63946", fontweight="bold",
              bbox=dict(facecolor="#ffffff", edgecolor="#e0e0e0",
@@ -638,7 +651,7 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
         ax2.set_title("Identity", fontsize=11, fontweight="bold", pad=7)
         identity_rows = [
             ("Defect cluster",  str(defect_cluster),         True),
-            ("Stage",           stage_label,                  True),
+            ("Stage",           stage_label,                 True),
             ("Stage rank",      str(defect_cluster + 1),      True),
             ("Confidence",      f"{confidence * 100:.1f}%",   True),
             ("GAI score",       f"{gai_score:.3f} %",         True),
@@ -745,7 +758,7 @@ def _build_summary_html(pred_class, confidence, gai_score, si_ia,
     dam_color  = DAMAGE_COLOR.get(defect_cluster, "#888888")
     agree      = stage_label_km == stage_label_rb
     agree_col  = "#2ca02c" if agree else "#e63946"
-    agree_txt  = "✅ Agree" if agree else "⚠️ Disagree — KMeans used"
+    agree_txt  = "✅ Agree" if agree else "⚠️ Disagree — Highest stage selected"
     is_seg_cls = pred_class in ("segregation", "crack_segregation")
 
     STAGE_COLORS = {
@@ -867,8 +880,17 @@ def run_pipeline(image: Image.Image,
     # ── Step 4: Stage assignment (seg classes only) ───────────────────────────
     stage_label_km, stage_rank_km = assign_stage_kmeans(gai_score, si_ia, pred_class)
     stage_label_rb, cluster_rb    = assign_stage(gai_score, si_ia, pred_class)
-    stage_label    = stage_label_km
-    defect_cluster = stage_rank_km
+    
+    # Choose the highest severity stage between KMeans and Rule-Based
+    sev_km = _get_stage_severity(stage_label_km)
+    sev_rb = _get_stage_severity(stage_label_rb)
+
+    if sev_rb > sev_km:
+        stage_label    = stage_label_rb
+        defect_cluster = cluster_rb
+    else:
+        stage_label    = stage_label_km
+        defect_cluster = stage_rank_km
 
     # ── Generate plots ────────────────────────────────────────────────────────
     p1 = plot1_roi(orig_img, crop_img, bbox, pred_class, confidence)
@@ -1016,13 +1038,13 @@ _CLASS_LEGEND_HTML = """
 <div style="display:flex;gap:10px;flex-wrap:wrap;padding:10px 0 4px">
   <span style="font-size:0.82em;font-weight:600;color:#6b7280;align-self:center">Classes:</span>
   <span style="background:#e6394622;color:#e63946;border:1px solid #e6394655;
-               padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">crack</span>
+                padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">crack</span>
   <span style="background:#fb560722;color:#fb5607;border:1px solid #fb560755;
-               padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">crack_segregation</span>
+                padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">crack_segregation</span>
   <span style="background:#3a86ff22;color:#3a86ff;border:1px solid #3a86ff55;
-               padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">segregation</span>
+                padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">segregation</span>
   <span style="background:#2dc65322;color:#2dc653;border:1px solid #2dc65355;
-               padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">normal</span>
+                padding:3px 11px;border-radius:12px;font-size:0.82em;font-weight:700">normal</span>
 </div>
 """
 
