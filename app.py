@@ -25,6 +25,8 @@ import os
 import io
 import cv2
 import json
+import time
+import logging
 import joblib
 import numpy as np
 import torch
@@ -44,6 +46,12 @@ from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+)
+logger = logging.getLogger("concrete-inspector")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURATION
@@ -335,9 +343,37 @@ def _fig_to_pil(fig: plt.Figure) -> Image.Image:
     return Image.open(buf).copy()
 
 
-def _mask_overlay(crop: np.ndarray, mask, cls_name: str) -> np.ndarray:
+def _error_placeholder_img(message: str, title: str = "Stage failed") -> Image.Image:
+    """Small red-bordered placeholder returned in place of a plot that raised
+    an exception, so a single failed stage can't blank out the whole response."""
+    fig, ax = plt.subplots(figsize=(6, 4), facecolor="#fff5f5")
+    ax.set_facecolor("#fff5f5")
+    ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_edgecolor("#e63946"); sp.set_linewidth(2.5)
+    ax.text(0.5, 0.58, "⚠️", ha="center", va="center", fontsize=34, transform=ax.transAxes)
+    ax.text(0.5, 0.34, title, ha="center", va="center", fontsize=12,
+            fontweight="bold", color="#c1121f", transform=ax.transAxes)
+    ax.text(0.5, 0.18, message[:120], ha="center", va="center", fontsize=8.5,
+            color="#6b7280", transform=ax.transAxes, wrap=True)
+    plt.tight_layout()
+    return _fig_to_pil(fig)
+
+
+def _safe_plot(fn, *args, stage_name: str = "", **kwargs) -> Image.Image:
+    """Run a plot function; on failure log it and return a placeholder image
+    instead of letting the exception propagate and blank out every output."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("[Plot · %s] %s: %s", stage_name or fn.__name__, type(exc).__name__, exc)
+        return _error_placeholder_img(f"{type(exc).__name__}: {exc}",
+                                       title=f"{stage_name or fn.__name__} unavailable")
+
+
+def _mask_overlay(crop: np.ndarray, mask, cls_name: str, show_mask: bool = True) -> np.ndarray:
     d = crop.copy()
-    if SHOW_MASK and mask is not None and mask.any():
+    if show_mask and mask is not None and mask.any():
         h, w = crop.shape[:2]
         m  = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
         ov = d.copy()
@@ -613,7 +649,8 @@ def plot4_stage_comparison(stage_label_km, stage_label_rb,
 def plot5_inspection_card(crop_img, pred_mask, pred_class,
                            confidence, all_probs,
                            gai_score, si_ia,
-                           stage_label, defect_cluster) -> Image.Image:
+                           stage_label, defect_cluster,
+                           show_mask: bool = True) -> Image.Image:
     MAT_ROWS = [
         ("mat_fine_aggregate",      "Fine Agg."),
         ("mat_coarse_aggregate",    "Coarse Agg."),
@@ -636,7 +673,7 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
                                width_ratios=[1.6, 1.1, 1.05, 1.4], wspace=0.36)
 
         ax1 = fig.add_subplot(gs[0, 0])
-        ax1.imshow(_mask_overlay(crop_img, pred_mask, pred_class))
+        ax1.imshow(_mask_overlay(crop_img, pred_mask, pred_class, show_mask=show_mask))
         ax1.set_title("Image", fontsize=11, fontweight="bold", pad=7)
         ax1.set_xticks([]); ax1.set_yticks([])
         for sp in ax1.spines.values():
@@ -719,7 +756,7 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
                                width_ratios=[1.4, 1.0], wspace=0.32)
 
         ax1 = fig.add_subplot(gs[0, 0])
-        ax1.imshow(_mask_overlay(crop_img, pred_mask, pred_class))
+        ax1.imshow(_mask_overlay(crop_img, pred_mask, pred_class, show_mask=show_mask))
         ax1.set_title("Image", fontsize=11, fontweight="bold", pad=7)
         ax1.set_xticks([]); ax1.set_yticks([])
         for sp in ax1.spines.values():
@@ -752,7 +789,9 @@ def plot5_inspection_card(crop_img, pred_mask, pred_class,
 # ═══════════════════════════════════════════════════════════════════════════════
 def _build_summary_html(pred_class, confidence, gai_score, si_ia,
                          stage_label_km, stage_label_rb,
-                         defect_cluster, num_regions) -> str:
+                         defect_cluster, num_regions,
+                         total_time_s: float = None,
+                         warnings: list = None) -> str:
     cls_hex    = CLASS_HEX.get(pred_class, "#888888")
     damage_str = DAMAGE_LABEL.get(defect_cluster, "N/A")
     dam_color  = DAMAGE_COLOR.get(defect_cluster, "#888888")
@@ -798,6 +837,18 @@ def _build_summary_html(pred_class, confidence, gai_score, si_ia,
             row("Anomaly Regions", code_val(str(num_regions)))
         )
 
+    time_row = row("Processing time", code_val(f"{total_time_s:.2f}s")) if total_time_s is not None else ""
+
+    warn_html = ""
+    if warnings:
+        items = "".join(f'<li style="margin:2px 0">{w}</li>' for w in warnings)
+        warn_html = (
+            '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+            'padding:8px 14px;margin-top:10px;font-size:0.82em;color:#92400e">'
+            f'<b>⚠️ Degraded result — {len(warnings)} stage(s) had an issue:</b>'
+            f'<ul style="margin:4px 0 0 18px;padding:0">{items}</ul></div>'
+        )
+
     return f"""
 <div style="background:#fff;border-radius:12px;padding:16px 20px;
             border:1px solid #e5e7eb;border-top:4px solid {cls_hex};
@@ -811,6 +862,8 @@ def _build_summary_html(pred_class, confidence, gai_score, si_ia,
   {row("GAI Score", code_val(f"{gai_score:.3f}%"))}
   {row("SI-IA Score", code_val(f"{si_ia:.3f}"))}
   {seg_rows}
+  {time_row}
+  {warn_html}
 </div>
 """
 
@@ -822,6 +875,16 @@ def run_pipeline(image: Image.Image,
                  seg_threshold: float = SEG_THRESHOLD,
                  conf_threshold: float = CONF_THRESHOLD,
                  show_mask: bool = SHOW_MASK):
+    """Every stage below is isolated: a failure in ROI, mask, or stage
+    assignment is logged and degraded gracefully (the pipeline still
+    returns a result). Only a failure that leaves nothing meaningful to
+    show (no models, no image, unreadable image, classification failure)
+    raises gr.Error and stops the run. show_mask/seg_threshold/conf_threshold
+    are passed explicitly end-to-end — no shared mutable globals — so
+    concurrent requests from different users can't clobber each other."""
+    t0 = time.perf_counter()
+    warnings = []
+
     if not MODELS_LOADED:
         raise gr.Error(
             "Models could not be loaded. "
@@ -830,15 +893,20 @@ def run_pipeline(image: Image.Image,
     if image is None:
         raise gr.Error("Please upload a concrete image first.")
 
-    global SHOW_MASK
-    SHOW_MASK = show_mask
-    orig_img = np.array(image.convert("RGB"))
-    H, W     = orig_img.shape[:2]
+    # ── Step 0 · Load & validate ─────────────────────────────────────────────
+    try:
+        orig_img = np.array(image.convert("RGB"))
+        H, W = orig_img.shape[:2]
+        if H < 32 or W < 32:
+            raise ValueError(f"image is only {W}x{H}px — too small for reliable inference")
+    except Exception as exc:
+        logger.error("[Step 0 · Load] %s: %s", type(exc).__name__, exc)
+        raise gr.Error(f"Couldn't read this image: {exc}")
 
-    # ── Step 1: Roboflow ROI detection ────────────────────────────────────────
+    # ── Step 1 · Roboflow ROI (fallback: full image) ─────────────────────────
+    t = time.perf_counter()
     crop_img = orig_img.copy()
     bbox     = (0, 0, W, H)
-
     if concrete_seg_model is not None:
         try:
             import supervision as sv
@@ -857,65 +925,110 @@ def run_pipeline(image: Image.Image,
                 crop_img = orig_img[cy1:cy2, cx1:cx2]
                 bbox     = (cx1, cy1, cx2, cy2)
         except Exception as exc:
-            print(f"⚠️  Roboflow error: {exc} — falling back to full image.")
+            logger.warning("[Step 1 · ROI] %s: %s — falling back to full image.", type(exc).__name__, exc)
+            warnings.append("ROI detection failed — used the full image instead.")
+            crop_img, bbox = orig_img.copy(), (0, 0, W, H)
+    roi_time = time.perf_counter() - t
 
-    # ── Step 2: Classify (ResNet-18) ─────────────────────────────────────────
-    cls_tensor = _to_tensor(crop_img, CLS_IMG_SIZE)
-    pred_class, confidence, all_probs = classify_image(classifier, cls_tensor)
+    # ── Step 2 · Classify (ResNet-18) — fatal if this fails ──────────────────
+    t = time.perf_counter()
+    try:
+        cls_tensor = _to_tensor(crop_img, CLS_IMG_SIZE)
+        pred_class, confidence, all_probs = classify_image(classifier, cls_tensor)
+    except Exception as exc:
+        logger.error("[Step 2 · Classification] %s: %s", type(exc).__name__, exc)
+        raise gr.Error(f"Classification failed on this image: {exc}. Try a different image.")
+    cls_time = time.perf_counter() - t
 
-    # ── Step 3: Segment (U-Net) — ALWAYS run for all classes ─────────────────
-    seg_tensor = _to_tensor(crop_img, SEG_IMG_SIZE)
-    mask_raw   = segment_image(seg_model, seg_tensor, seg_threshold)
-    aspect     = crop_img.shape[0] / max(crop_img.shape[1], 1)
-    if aspect > 1.4:
-        pred_mask = apply_circular_mask(
-            remove_edge_artifacts(mask_raw, margin_pct=0.05), margin=0.03
-        )
-    else:
-        pred_mask = remove_edge_artifacts(mask_raw, margin_pct=0.04)
-    features  = extract_features(pred_mask, grid_size=10)
-    gai_score = features["anomaly_area_pct"]
-    si_ia     = features["si_ia_score"]
+    # ── Step 3 · Segment (U-Net) + features — degrade gracefully ─────────────
+    t = time.perf_counter()
+    pred_mask = None
+    features  = {"num_regions": 0}
+    gai_score = si_ia = 0.0
+    try:
+        seg_tensor = _to_tensor(crop_img, SEG_IMG_SIZE)
+        mask_raw   = segment_image(seg_model, seg_tensor, seg_threshold)
+        aspect     = crop_img.shape[0] / max(crop_img.shape[1], 1)
+        if aspect > 1.4:
+            pred_mask = apply_circular_mask(
+                remove_edge_artifacts(mask_raw, margin_pct=0.05), margin=0.03
+            )
+        else:
+            pred_mask = remove_edge_artifacts(mask_raw, margin_pct=0.04)
+        features  = extract_features(pred_mask, grid_size=10)
+        gai_score = features["anomaly_area_pct"]
+        si_ia     = features["si_ia_score"]
+    except Exception as exc:
+        logger.warning("[Step 3 · Mask/Features] %s: %s", type(exc).__name__, exc)
+        warnings.append("Segmentation failed — GAI/SI-IA/stage are unavailable for this image.")
+        pred_mask = None
+    mask_time = time.perf_counter() - t
 
-    # ── Step 4: Stage assignment (seg classes only) ───────────────────────────
-    stage_label_km, stage_rank_km = assign_stage_kmeans(gai_score, si_ia, pred_class)
-    stage_label_rb, cluster_rb    = assign_stage(gai_score, si_ia, pred_class)
-    
+    # ── Step 4 · Stage assignment — each method isolated ──────────────────────
+    t = time.perf_counter()
+    try:
+        stage_label_km, stage_rank_km = assign_stage_kmeans(gai_score, si_ia, pred_class)
+    except Exception as exc:
+        logger.warning("[Step 4 · KMeans stage] %s: %s", type(exc).__name__, exc)
+        warnings.append("KMeans stage assignment failed.")
+        stage_label_km, stage_rank_km = "ERROR", -1
+    try:
+        stage_label_rb, cluster_rb = assign_stage(gai_score, si_ia, pred_class)
+    except Exception as exc:
+        logger.warning("[Step 4 · Rule-based stage] %s: %s", type(exc).__name__, exc)
+        warnings.append("Rule-based stage assignment failed.")
+        stage_label_rb, cluster_rb = "ERROR", -1
+
     # Choose the highest severity stage between KMeans and Rule-Based
     sev_km = _get_stage_severity(stage_label_km)
     sev_rb = _get_stage_severity(stage_label_rb)
-
     if sev_rb > sev_km:
-        stage_label    = stage_label_rb
-        defect_cluster = cluster_rb
+        stage_label, defect_cluster = stage_label_rb, cluster_rb
     else:
-        stage_label    = stage_label_km
-        defect_cluster = stage_rank_km
+        stage_label, defect_cluster = stage_label_km, stage_rank_km
+    stage_time = time.perf_counter() - t
 
-    # ── Generate plots ────────────────────────────────────────────────────────
-    p1 = plot1_roi(orig_img, crop_img, bbox, pred_class, confidence)
-    p2 = plot2_classification(pred_class, confidence, all_probs, crop_img)
+    # ── Step 5 · Plots — each isolated, placeholder image on failure ─────────
+    p1 = _safe_plot(plot1_roi, orig_img, crop_img, bbox, pred_class, confidence,
+                     stage_name="ROI plot")
+    p2 = _safe_plot(plot2_classification, pred_class, confidence, all_probs, crop_img,
+                     stage_name="Classification plot")
 
-    # Stage 3: always generated for every class
-    p3 = plot3_lai_heatmap(crop_img, pred_mask, gai_score, si_ia,
-                            pred_class, confidence, stage_label)
+    p3 = (_safe_plot(plot3_lai_heatmap, crop_img, pred_mask, gai_score, si_ia,
+                      pred_class, confidence, stage_label, stage_name="LAI heatmap")
+          if pred_mask is not None else
+          _error_placeholder_img("no mask available", title="LAI heatmap unavailable"))
 
-    # Stage 4: only for segregation / crack_segregation
-    p4 = (plot4_stage_comparison(stage_label_km, stage_label_rb,
-                                   stage_rank_km, cluster_rb,
-                                   gai_score, si_ia, crop_img)
+    p4 = (_safe_plot(plot4_stage_comparison, stage_label_km, stage_label_rb,
+                      stage_rank_km, cluster_rb, gai_score, si_ia, crop_img,
+                      stage_name="Stage comparison")
           if pred_class in ("segregation", "crack_segregation") else None)
 
-    p5 = plot5_inspection_card(crop_img, pred_mask, pred_class,
-                                confidence, all_probs,
-                                gai_score, si_ia,
-                                stage_label, defect_cluster)
+    p5 = _safe_plot(plot5_inspection_card, crop_img, pred_mask, pred_class,
+                     confidence, all_probs, gai_score, si_ia,
+                     stage_label, defect_cluster, show_mask=show_mask,
+                     stage_name="Inspection card")
 
-    summary_html = _build_summary_html(
-        pred_class, confidence, gai_score, si_ia,
-        stage_label_km, stage_label_rb,
-        defect_cluster, features.get("num_regions", 0),
+    total_time = time.perf_counter() - t0
+    logger.info(
+        "class=%s conf=%.3f stage=%s roi=%.2fs cls=%.2fs mask=%.2fs stage_assign=%.2fs total=%.2fs%s",
+        pred_class, confidence, stage_label, roi_time, cls_time, mask_time, stage_time, total_time,
+        f" warnings={len(warnings)}" if warnings else "",
     )
+
+    try:
+        summary_html = _build_summary_html(
+            pred_class, confidence, gai_score, si_ia,
+            stage_label_km, stage_label_rb,
+            defect_cluster, features.get("num_regions", 0),
+            total_time_s=total_time, warnings=warnings,
+        )
+    except Exception as exc:
+        logger.error("[Summary HTML] %s: %s", type(exc).__name__, exc)
+        summary_html = (
+            f"<div style='color:#c1121f;padding:10px'>⚠️ Summary card failed to render "
+            f"({type(exc).__name__}). Class: {pred_class}, Stage: {stage_label}.</div>"
+        )
 
     return p1, p2, p3, p4, p5, summary_html
 
